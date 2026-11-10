@@ -114,8 +114,11 @@ SUDOERS=/etc/sudoers.d/$NAME
 
 # --- create -----------------------------------------------------------------
 if id "$NAME" >/dev/null 2>&1; then
+  # Revoking your own sudo can lock you out of the machine (Ubuntu root has no password).
+  ((!SUDO)) && [[ $NAME == "${SUDO_USER:-}" ]] && fail "refusing to revoke sudo from '$NAME', the user running this script"
   if ((!YES)); then
-    read -r -p "User '$NAME' already exists. Continue? [Y/n] " ans || fail "user '$NAME' exists and no answer was given (use -y)"
+    if ((SUDO)); then action='grant it passwordless sudo'; else action='revoke its sudo access'; fi
+    read -r -p "User '$NAME' already exists. Continue and $action? [Y/n] " ans || fail "user '$NAME' exists and no answer was given (use -y)"
     [[ -z $ans || $ans =~ ^[Yy] ]] || { echo 'Aborted, nothing changed.'; exit 1; }
   fi
 else
@@ -145,13 +148,20 @@ run chown -R "$NAME:" "$SSH_DIR"  # "user:" = the user's login group, whatever i
 if ((!SUDO)); then
   run rm -f "$SUDOERS"
   for g in sudo admin wheel; do
-    id -nG "$NAME" 2>/dev/null | grep -qw "$g" && run gpasswd -d "$NAME" "$g"
+    # Exact match on the group's member list: that is what gpasswd -d can change
+    # (grep -w would also hit e.g. "sudo-ops" and the user's own login group).
+    members=$(getent group "$g" | cut -d: -f4) || continue
+    if [[ ,$members, == *,"$NAME",* ]]; then run gpasswd -d "$NAME" "$g"; fi
   done
+  ((DRY_RUN)) && exit 0
   # Rules elsewhere (e.g. /etc/sudoers) are not ours to edit; report them instead.
-  if ((!DRY_RUN)) && ! sudo -l -U "$NAME" 2>&1 | grep -q 'not allowed'; then
+  out=$(LC_ALL=C sudo -l -U "$NAME" 2>&1) || true
+  if [[ $out == *'not allowed'* ]]; then
+    echo "Done: '$NAME' can log in with the given key (no sudo access)."
+  else
     echo "Warning: '$NAME' still has sudo rules elsewhere, see: sudo -l -U $NAME" >&2
+    echo "Done: '$NAME' can log in with the given key; sudo drop-in and sudo/admin/wheel membership removed."
   fi
-  ((DRY_RUN)) || echo "Done: '$NAME' can log in with the given key (no sudo access)."
   exit 0
 fi
 

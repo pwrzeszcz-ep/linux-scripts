@@ -33,6 +33,7 @@ check 'ecdsa full line'   0 "append.*$EC_BODY ec"  "$S" -name zz_dry -key "$(cat
 check 'sudo by default'   0 'visudo'               "$S" -name zz_dry -key "$KEY" "${D[@]}"
 check 'no-sudo: no visudo' 1 ''                    bash -c "'$S' -name zz_dry -key '$KEY' ${D[*]} --no-sudo | grep -q 'visudo\|install'"
 check 'no-sudo: revoke'   0 'rm -f /etc/sudoers.d/zz_dry' "$S" -name zz_dry -key "$KEY" "${D[@]}" --no-sudo
+check 'no self-revoke'    1 'refusing to revoke'   env SUDO_USER=root "$S" -name root -key "$KEY" "${D[@]}" -y --no-sudo
 check 'no-sudo interactive' 0 'chown'              bash -c "printf 'zz_dry\na@b.c\n%s\n' '$KEY' | '$S' --dry-run --no-sudo"
 check 'install dry run'   0 'install -m 755'       "$S" --install --dry-run
 check 'interactive EOF'   1 'no input'             "$S" --dry-run
@@ -56,7 +57,11 @@ if [[ ${1:-} == --real ]]; then
   check 'revoked file'   1 ''                    sudo test -e /etc/sudoers.d/$N
   check 'revoked group'  1 ''                    bash -c "id -nG $N | grep -qw sudo"
   check 'revoked denied' 1 ''                    sudo -u $N sudo -n whoami
-  check 'no warning'     1 ''                    bash -c "sudo '$S' -name $N -email a@b.c -key '$KEY' -y --no-sudo 2>&1 | grep -q Warning"
+  check 'no warning'     0 ''                    bash -c "out=\$(sudo '$S' -name $N -email a@b.c -key '$KEY' -y --no-sudo 2>&1) && grep -q 'no sudo access' <<<\"\$out\" && ! grep -q Warning <<<\"\$out\""
+  sudo groupadd sudo-zztest && sudo usermod -aG sudo-zztest $N  # lookalike name must be left alone
+  check 'lookalike grp'  0 'no sudo access'      sudo "$S" -name $N -email a@b.c -key "$KEY" -y --no-sudo
+  check 'lookalike kept' 0 'sudo-zztest'         id -nG $N
+  sudo groupdel sudo-zztest
   echo "$N ALL=(ALL) ALL" | sudo tee /etc/sudoers.d/zz_other >/dev/null  # a rule the script does not own
   check 'warns on other' 0 'still has sudo rules' sudo "$S" -name $N -email a@b.c -key "$KEY" -y --no-sudo
   sudo rm -f /etc/sudoers.d/zz_other
