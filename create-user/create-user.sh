@@ -115,7 +115,9 @@ SUDOERS=/etc/sudoers.d/$NAME
 # --- create -----------------------------------------------------------------
 if id "$NAME" >/dev/null 2>&1; then
   # Revoking your own sudo can lock you out of the machine (Ubuntu root has no password).
-  ((!SUDO)) && [[ $NAME == "${SUDO_USER:-}" ]] && fail "refusing to revoke sudo from '$NAME', the user running this script"
+  # SUDO_USER is cleared by "sudo su -"; logname still reports the login user.
+  ((!SUDO)) && [[ $NAME == "${SUDO_USER:-}" || $NAME == "$(logname 2>/dev/null)" ]] &&
+    fail "refusing to revoke sudo from '$NAME', the user running this script"
   if ((!YES)); then
     if ((SUDO)); then action='grant it passwordless sudo'; else action='revoke its sudo access'; fi
     read -r -p "User '$NAME' already exists. Continue and $action? [Y/n] " ans || fail "user '$NAME' exists and no answer was given (use -y)"

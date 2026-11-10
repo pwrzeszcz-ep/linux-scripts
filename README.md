@@ -54,8 +54,9 @@ rejected.
 
 ### Running it again for the same user
 
-If the user already exists, the script asks `Continue? [Y/n]`, or carries on
-straight away with `-y`. It then skips `adduser` and:
+If the user already exists, the script asks `Continue and grant it passwordless
+sudo? [Y/n]` (or `... revoke its sudo access? [Y/n]` with `--no-sudo`), or
+carries on straight away with `-y`. It then skips `adduser` and:
 
 - **adds the key** to `authorized_keys` only if it isn't there yet, keeping the user's other keys;
 - **without `--no-sudo`**, grants sudo access;
@@ -63,7 +64,8 @@ straight away with `-y`. It then skips `adduser` and:
   and removes the user from the `sudo`, `admin` and `wheel` groups. If another
   rule, for example in `/etc/sudoers`, still gives the user sudo, the script
   warns about it but doesn't edit that file. Leaving a group only takes effect
-  at the user's next login.
+  at the user's next login. It refuses to revoke sudo from the user running
+  the script, so you can't lock yourself out.
 
 The script refuses to change a `.ssh` directory or `authorized_keys` file that
 is a symlink.
@@ -75,8 +77,8 @@ is a symlink.
 ./create-user/create-user.test.sh --real   # also creates and deletes throwaway users (needs sudo)
 ```
 
-`--real` uses the users `zz_test_user`, `zz_test_old` and `zz_test_nosudo`,
-and refuses to run if any of them already exists.
+`--real` uses the users `zz_test_user`, `zz_test_old` and `zz_test_nosudo`
+and the group `sudo-zztest`, and refuses to run if any of them already exists.
 
 ### Requirements
 

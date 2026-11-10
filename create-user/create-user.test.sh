@@ -34,6 +34,9 @@ check 'sudo by default'   0 'visudo'               "$S" -name zz_dry -key "$KEY"
 check 'no-sudo: no visudo' 1 ''                    bash -c "'$S' -name zz_dry -key '$KEY' ${D[*]} --no-sudo | grep -q 'visudo\|install'"
 check 'no-sudo: revoke'   0 'rm -f /etc/sudoers.d/zz_dry' "$S" -name zz_dry -key "$KEY" "${D[@]}" --no-sudo
 check 'no self-revoke'    1 'refusing to revoke'   env SUDO_USER=root "$S" -name root -key "$KEY" "${D[@]}" -y --no-sudo
+if ME=$(logname 2>/dev/null); then  # the "sudo su -" case: SUDO_USER gone, login name still known
+  check 'no self-revoke su' 1 'refusing to revoke' env -u SUDO_USER "$S" -name "$ME" -key "$KEY" "${D[@]}" -y --no-sudo
+fi
 check 'no-sudo interactive' 0 'chown'              bash -c "printf 'zz_dry\na@b.c\n%s\n' '$KEY' | '$S' --dry-run --no-sudo"
 check 'install dry run'   0 'install -m 755'       "$S" --install --dry-run
 check 'interactive EOF'   1 'no input'             "$S" --dry-run
@@ -45,6 +48,7 @@ check 'existing, -y'      0 'append to /root/'     "$S" -name root -key "$KEY" "
 
 if [[ ${1:-} == --real ]]; then
   for u in zz_test_user zz_test_old zz_test_nosudo; do id $u >/dev/null 2>&1 && { echo "$u already exists, refusing --real"; exit 1; }; done
+  getent group sudo-zztest >/dev/null && { echo "group sudo-zztest already exists, refusing --real"; exit 1; }
   N=zz_test_nosudo
   check 'no-sudo create' 0 'no sudo access'      sudo "$S" -name $N -email a@b.c -key "$KEY" --no-sudo
   check 'no-sudo file'   1 ''                    sudo test -e /etc/sudoers.d/$N
