@@ -30,6 +30,10 @@ check 'dry run'           0 "ssh-ed25519 $KEY a@b.c" "$S" -name zz_dry -key "$KE
 check 'dry run quoting'   0 "--gecos '' zz_dry"    "$S" -name zz_dry -key "$KEY" "${D[@]}"
 check 'full key line'     0 "append.*$KEY x"       "$S" -name zz_dry -key "$(cat "$T/k.pub")" "${D[@]}"
 check 'ecdsa full line'   0 "append.*$EC_BODY ec"  "$S" -name zz_dry -key "$(cat "$T/e.pub")" "${D[@]}"
+check 'sudo by default'   0 'visudo'               "$S" -name zz_dry -key "$KEY" "${D[@]}"
+check 'no-sudo: no visudo' 1 ''                    bash -c "'$S' -name zz_dry -key '$KEY' ${D[*]} --no-sudo | grep -q 'visudo\|install'"
+check 'no-sudo: revoke'   0 'rm -f /etc/sudoers.d/zz_dry' "$S" -name zz_dry -key "$KEY" "${D[@]}" --no-sudo
+check 'no-sudo interactive' 0 'chown'              bash -c "printf 'zz_dry\na@b.c\n%s\n' '$KEY' | '$S' --dry-run --no-sudo"
 check 'install dry run'   0 'install -m 755'       "$S" --install --dry-run
 check 'interactive EOF'   1 'no input'             "$S" --dry-run
 check 'interactive ok'    0 "append.*$KEY a@b.c"   bash -c "printf 'Bad\nzz_dry\nnope\na@b.c\njunk\n%s\n' '$KEY' | '$S' --dry-run"
@@ -39,7 +43,24 @@ check 'existing, EOF'     1 'use -y'               "$S" -name root -key "$KEY" "
 check 'existing, -y'      0 'append to /root/'     "$S" -name root -key "$KEY" "${D[@]}" -y
 
 if [[ ${1:-} == --real ]]; then
-  for u in zz_test_user zz_test_old; do id $u >/dev/null 2>&1 && { echo "$u already exists, refusing --real"; exit 1; }; done
+  for u in zz_test_user zz_test_old zz_test_nosudo; do id $u >/dev/null 2>&1 && { echo "$u already exists, refusing --real"; exit 1; }; done
+  N=zz_test_nosudo
+  check 'no-sudo create' 0 'no sudo access'      sudo "$S" -name $N -email a@b.c -key "$KEY" --no-sudo
+  check 'no-sudo file'   1 ''                    sudo test -e /etc/sudoers.d/$N
+  check 'no-sudo denied' 1 ''                    sudo -u $N sudo -n whoami
+  check 'no-sudo key ok' 0 '^1$'                 sudo grep -c "$KEY" /home/$N/.ssh/authorized_keys
+  check 'rerun grants'   0 'Done:.*without a password' sudo "$S" -name $N -email a@b.c -key "$KEY" -y
+  check 'granted works'  0 '^root$'              sudo -u $N sudo -n whoami
+  sudo usermod -aG sudo $N
+  check 'rerun revokes'  0 'no sudo access'      sudo "$S" -name $N -email a@b.c -key "$KEY" -y --no-sudo
+  check 'revoked file'   1 ''                    sudo test -e /etc/sudoers.d/$N
+  check 'revoked group'  1 ''                    bash -c "id -nG $N | grep -qw sudo"
+  check 'revoked denied' 1 ''                    sudo -u $N sudo -n whoami
+  check 'no warning'     1 ''                    bash -c "sudo '$S' -name $N -email a@b.c -key '$KEY' -y --no-sudo 2>&1 | grep -q Warning"
+  echo "$N ALL=(ALL) ALL" | sudo tee /etc/sudoers.d/zz_other >/dev/null  # a rule the script does not own
+  check 'warns on other' 0 'still has sudo rules' sudo "$S" -name $N -email a@b.c -key "$KEY" -y --no-sudo
+  sudo rm -f /etc/sudoers.d/zz_other
+  sudo deluser --remove-home $N >/dev/null 2>&1
   U=zz_test_user
   check 'real create'   0 'Done:'                sudo "$S" -name $U -email a@b.c -key "$KEY"
   check 'rerun -y'      0 'Done:'                sudo "$S" -name $U -email other@b.c -key "$KEY" -y
